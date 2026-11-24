@@ -1,51 +1,40 @@
 # Wazuh SIEM deployment and SSH alert investigation
 
-**Alejandro Báez Santana · Personal SOC lab**
+**Alejandro Báez Santana · Personal security operations lab**
 
-I deployed a Wazuh manager to collect security events from endpoints and used the resulting alerts to investigate SSH authentication failures.
+I deployed a Wazuh manager, configured a Linux endpoint to report to it, and reviewed authentication activity in the dashboard. The dashboard below shows what I could see for one Linux agent over 24 hours.
 
-## Wazuh deployment
+![Wazuh Threat Hunting dashboard for Servidor-Linux-66 showing 10,726 total alerts and 9,212 authentication failures](linux-alerts.jpg)
 
-| Component | Role in my lab |
-| --- | --- |
-| Wazuh manager on a cloud VPS | Central monitoring system. My recorded allocation was 2 vCPU, 2 GB RAM and 80 GB storage. |
-| Linux VPS with Wazuh agent | Monitored endpoint and source of SSH authentication activity. |
-| Mac with Wazuh agent | Additional endpoint listed in my monitoring notes. |
+## What the dashboard recorded
 
-### Agent connectivity investigation · January 8, 2026
+| Source | Total alerts | Authentication failures | Authentication successes | Level 12 or above |
+| --- | ---: | ---: | ---: | ---: |
+| Threat Hunting · Servidor-Linux-66 · last 24 hours | 10,726 | 9,212 | 36 | 8 |
+| [Security Events · January 8 capture](january-alerts.jpg) | 1,299 | 698 | 39 | 0 |
+| Earlier lab notes · original reporting window unavailable | 1,952 | 1,333 | — | — |
 
-My deployment notes describe two separate issues. First, the agent's TCP connection to port 1514 timed out. The troubleshooting discussion recorded a TCP listener on the manager and a UDP allowance in the firewall. I needed to check the transport as well as the port number. Second, the discussion recorded an agent/manager version compatibility error. Checking both installed versions was a separate step from checking network reachability. The archived discussion does not establish which change ultimately restored connectivity.
+Each row represents a separate observation. The 36 successful authentications in the first view warrant review alongside the failures. To assess whether any login was unauthorized, I would compare account, source and timestamp in the underlying events with accepted SSH sessions on the host. The available evidence consists of dashboard totals and host-side samples. An event-level Wazuh export is still missing.
 
-### Evidence and validation
+## From server to monitored endpoint
 
-The deployment table and the connectivity investigation are based on historical lab notes. The original manager service output, active-agent listing and Wazuh alert export have not been recovered. The original screenshots linked below document the companion Linux SSH exercise. To verify the Wazuh collection path in a repeat run, capture an active agent ID and a timestamped SSH event carrying that same ID, then match it to the corresponding authentication entry on the Linux host.
+| Stage | Evidence | What I observed |
+| --- | --- | --- |
+| Cloud infrastructure | [AWS EC2 instance](ec2-instance.jpg) | The EC2 console showed a stopped t3.medium instance during resizing. My earlier VPS notes separately recorded 2 vCPU, 2 GB RAM and 80 GB storage. |
+| Manager startup | [Linux service status](manager-status.jpg) | On May 28, 2026, systemd reported the Wazuh manager enabled and active. The output lists analysis, remote collection and monitoring processes. |
+| Linux agent configuration | [Agent settings in the editor](linux-agent.jpg) | I configured TCP port 1514 and the enrollment name Servidor-Linux-66. The same name appears in the dashboard above under agent ID 007. |
+| macOS endpoint | [Local Wazuh startup output](mac-agent.jpg) | The local Wazuh processes reported starting. The original terminal photo also records a duplicate enrollment name. Central enrollment on the Mac remains unverified. |
 
-## Wazuh investigation
+## Troubleshooting notes
 
-I used the SIEM to review authentication failures, then used a separate Fail2Ban exercise to check how a Linux host responds to repeated failed SSH logins.
+**Agent connectivity.** My January 8 notes describe a timeout to TCP 1514. I compared the manager's TCP listener with a UDP firewall allowance and investigated a separate agent/manager version compatibility error. The notes leave the final recovery step open.
 
-| Observation from my Wazuh lab notes | Count |
-| --- | ---: |
-| Total alerts | 1,952 |
-| Alerts classified as authentication failures | 1,333 |
+**Package conflict.** During the May deployment, the Ubuntu package manager rejected the agent package because the manager package was already installed on that machine. I checked the manager service on the server and inspected the agent configuration on the Linux endpoint. [Package-manager output](package-conflict.jpg)
 
-Authentication failures accounted for about 68% of the alerts. These counts describe alerts in my notes. Determining whether someone gained access would require correlating failures with accepted SSH logins on the same host. The original Wazuh dashboard capture and event export are unavailable for this report.
+## Companion SSH hardening exercise
 
-## SSH hardening
+My Wazuh notes list SSH keys, disabling direct root login, geographic access restrictions and Fail2Ban. In a separate exercise on an Ubuntu 22.04 VPS, I configured the sshd jail to ban after five failures within ten minutes. I checked the ban in the Fail2Ban log and verified access after a manual unban.
 
-My Wazuh lab notes list SSH keys, disabling direct root login, geographic access restrictions, and Fail2Ban among the measures I used. The evidence below comes from my separate Fail2Ban validation on an Ubuntu 22.04 VPS running OpenSSH.
+[Redacted log excerpts](host-evidence.md) · [Six original SSH screenshots](https://github.com/Alexcyberdr/fail2ban-ssh-hardening-lab/tree/main/evidence/screenshots) · [Jail configuration](https://github.com/Alexcyberdr/fail2ban-ssh-hardening-lab/blob/main/config/jail.local)
 
-In that exercise, the `sshd` jail tracked repeated failures in `/var/log/auth.log`. Five failures within ten minutes triggered a ban. I checked the ban in `/var/log/fail2ban.log`, verified that SSH access from the test host was blocked, and confirmed connectivity returned after I manually removed the ban.
-
-## Original evidence from the Fail2Ban exercise
-[Read the redacted host log excerpts](host-evidence.md).
-
-**Authentication failures.** This capture shows the host-side SSH log used for detection.
-
-![SSH authentication failures in the Linux authentication log](https://raw.githubusercontent.com/Alexcyberdr/fail2ban-ssh-hardening-lab/main/evidence/screenshots/02_AuthLog_SSH_Failed_Attempts.png)
-
-**Recovery check.** This capture documents SSH access after the manual unban.
-
-![SSH access restored after removing the Fail2Ban ban](https://raw.githubusercontent.com/Alexcyberdr/fail2ban-ssh-hardening-lab/main/evidence/screenshots/Fail2Ban_Access_Restored_After_Unban.png)
-
-[All six original screenshots](https://github.com/Alexcyberdr/fail2ban-ssh-hardening-lab/tree/main/evidence/screenshots) · [Log samples](https://github.com/Alexcyberdr/fail2ban-ssh-hardening-lab/tree/main/evidence/logs) · [Fail2Ban configuration](https://github.com/Alexcyberdr/fail2ban-ssh-hardening-lab/blob/main/config/jail.local)
+The Wazuh images are cropped from my original lab photos to remove unrelated screen content and infrastructure identifiers.
